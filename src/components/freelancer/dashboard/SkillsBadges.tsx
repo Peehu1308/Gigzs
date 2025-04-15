@@ -1,22 +1,112 @@
-import React, { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { 
-  Award, 
   Star, 
   Shield, 
   Zap, 
-  Clock, 
-  CheckCircle, 
   Plus,
   Search,
-  Filter,
-  ChevronDown,
-  Info
+  Info,
+  X
 } from 'lucide-react'
+import { supabase } from '../../../lib/supabase'
 
 function SkillsBadges() {
   const [searchTerm, setSearchTerm] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('all')
   const [showAddSkillModal, setShowAddSkillModal] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [skills, setSkills] = useState<string[]>([])
+  const [newSkill, setNewSkill] = useState('')
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    loadSkills()
+  }, [])
+
+  const loadSkills = async () => {
+    try {
+      setLoading(true)
+      setError(null)
+
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('No user found')
+
+      const { data: freelancerProfile, error: profileError } = await supabase
+        .from('freelancer_profiles')
+        .select('skills')
+        .eq('user_id', user.id)
+        .single()
+
+      if (profileError) throw profileError
+
+      if (freelancerProfile) {
+        setSkills(freelancerProfile.skills || [])
+      }
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred loading skills')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleAddSkill = async () => {
+    if (!newSkill.trim() || skills.includes(newSkill.trim())) {
+      return
+    }
+
+    try {
+      setLoading(true)
+      setError(null)
+
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('No user found')
+
+      const updatedSkills = [...skills, newSkill.trim()]
+
+      const { error } = await supabase
+        .from('freelancer_profiles')
+        .update({ skills: updatedSkills })
+        .eq('user_id', user.id)
+
+      if (error) throw error
+
+      setSkills(updatedSkills)
+      setNewSkill('')
+      setShowAddSkillModal(false)
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred adding skill')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleRemoveSkill = async (skillToRemove: string) => {
+    try {
+      setLoading(true)
+      setError(null)
+
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) throw new Error('No user found')
+
+      const updatedSkills = skills.filter(skill => skill !== skillToRemove)
+
+      const { error } = await supabase
+        .from('freelancer_profiles')
+        .update({ skills: updatedSkills })
+        .eq('user_id', user.id)
+
+      if (error) throw error
+
+      setSkills(updatedSkills)
+
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred removing skill')
+    } finally {
+      setLoading(false)
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -96,37 +186,35 @@ function SkillsBadges() {
       {/* Skills Section */}
       <div className="bg-white rounded-xl border border-gray-200 p-6">
         <h3 className="text-lg font-medium text-gray-900 mb-6">Skills</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {skills.map((skill) => (
+        {error && (
+          <div className="mb-4 p-4 bg-red-50 text-red-600 rounded-lg">
+            {error}
+          </div>
+        )}
+        <div className="flex flex-wrap gap-3">
+          {skills.map((skill, index) => (
             <div
-              key={skill.id}
-              className="border border-gray-200 rounded-lg p-4 hover:shadow-md transition-all duration-300"
+              key={index}
+              className="border border-gray-200 rounded-lg px-4 py-2 flex items-center gap-2 hover:shadow-md transition-all duration-300"
             >
-              <div className="flex items-center justify-between">
-                <h4 className="font-medium text-gray-900">{skill.name}</h4>
-                <div className="flex items-center">
-                  <Star className="text-yellow-400 fill-current" size={16} />
-                  <span className="ml-1 text-sm font-medium">{skill.rating}</span>
-                </div>
-              </div>
-              <div className="mt-2">
-                <div className="flex justify-between text-sm text-gray-500 mb-1">
-                  <span>Proficiency</span>
-                  <span>{skill.proficiency}%</span>
-                </div>
-                <div className="w-full bg-gray-200 rounded-full h-2">
-                  <div
-                    className="bg-[#00704A] h-2 rounded-full"
-                    style={{ width: `${skill.proficiency}%` }}
-                  />
-                </div>
-              </div>
-              <div className="mt-4 flex items-center text-sm text-gray-500">
-                <Clock size={16} className="mr-1" />
-                <span>{skill.experience} experience</span>
-              </div>
+              <span className="text-gray-900">{skill}</span>
+              <button
+                onClick={() => handleRemoveSkill(skill)}
+                className="text-gray-400 hover:text-red-500"
+                disabled={loading}
+              >
+                <X size={16} />
+              </button>
             </div>
           ))}
+          <button
+            onClick={() => setShowAddSkillModal(true)}
+            className="px-4 py-2 border-2 border-dashed border-gray-300 rounded-lg text-gray-600 hover:border-[#00704A] hover:text-[#00704A] flex items-center gap-2"
+            disabled={loading}
+          >
+            <Plus size={20} />
+            Add Skill
+          </button>
         </div>
       </div>
 
@@ -162,6 +250,38 @@ function SkillsBadges() {
           ))}
         </div>
       </div>
+
+      {/* Add Skill Modal */}
+      {showAddSkillModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md">
+            <h3 className="text-lg font-medium text-gray-900 mb-4">Add New Skill</h3>
+            <input
+              type="text"
+              value={newSkill}
+              onChange={(e) => setNewSkill(e.target.value)}
+              placeholder="Enter skill name"
+              className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:border-[#00704A] mb-4"
+            />
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowAddSkillModal(false)}
+                className="px-4 py-2 text-gray-600 hover:text-gray-800"
+                disabled={loading}
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleAddSkill}
+                className="px-4 py-2 bg-[#00704A] text-white rounded-lg hover:bg-[#005538] disabled:opacity-50"
+                disabled={loading || !newSkill.trim()}
+              >
+                Add Skill
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -193,30 +313,6 @@ const badges = [
     bgColor: 'bg-purple-50',
     iconColor: 'text-purple-600',
     earnedDate: 'Jan 2024'
-  }
-]
-
-const skills = [
-  {
-    id: 1,
-    name: 'React',
-    rating: 4.9,
-    proficiency: 95,
-    experience: '5 years'
-  },
-  {
-    id: 2,
-    name: 'Node.js',
-    rating: 4.8,
-    proficiency: 90,
-    experience: '4 years'
-  },
-  {
-    id: 3,
-    name: 'TypeScript',
-    rating: 4.7,
-    proficiency: 85,
-    experience: '3 years'
   }
 ]
 
