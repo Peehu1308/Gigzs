@@ -41,18 +41,23 @@ function Reviews() {
       setLoading(true)
       setError(null)
 
-      const { data: { user } } = await supabase.auth.getUser()
-      if (!user) throw new Error('No user found')
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('No user found');
+      console.log('Current user id:', user.id);
 
-      const { data: reviewsData, error: reviewsError } = await supabase
+      const { data: reviewsWithJobs, error: jobsJoinError } = await supabase
         .from('Reviews_freelancer')
-        .select('*')
+        .select(`*, jobs ( title )`)
         .eq('freelancer_id', user.id)
-        .order('created_at', { ascending: false })
+        .order('created_at', { ascending: false });
+      console.log('Join jobs:', { reviewsWithJobs, jobsJoinError });
+      if (jobsJoinError) throw jobsJoinError;
+      const normalizedReviews = (reviewsWithJobs || []).map((review: any) => ({
+        ...review,
+        project_title: review.jobs?.title || 'Project',
+      }));
+      setReviews(normalizedReviews);
 
-      if (reviewsError) throw reviewsError
-
-      setReviews(reviewsData || [])
     } catch (err) {
       setError(err instanceof Error ? err.message : 'An error occurred loading reviews')
     } finally {
@@ -103,15 +108,17 @@ function Reviews() {
 
   const filteredReviews = reviews.filter(review => {
     if (searchTerm) {
-      const searchLower = searchTerm.toLowerCase()
+      const searchLower = searchTerm.toLowerCase();
       return (
         review.project_title?.toLowerCase().includes(searchLower) ||
         review.comment?.toLowerCase().includes(searchLower) ||
-        review.skills_used.some(skill => skill.toLowerCase().includes(searchLower))
-      )
+        (Array.isArray(review.skills_used) && review.skills_used.some(skill =>
+          skill?.toLowerCase().includes(searchLower)
+        ))
+      );
     }
-    return true
-  })
+    return true;
+  });
 
   return (
     <div className="space-y-6">
@@ -300,14 +307,14 @@ function Reviews() {
                   {/* Skills */}
                   <div className="mt-4">
                     <div className="flex flex-wrap gap-2">
-                      {review.skills_used.map((skill, index) => (
+                      {Array.isArray(review.skills_used) ? review.skills_used.map((skill, index) => (
                         <span
                           key={index}
                           className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm"
                         >
                           {skill}
                         </span>
-                      ))}
+                      )) : null}
                     </div>
                   </div>
 
