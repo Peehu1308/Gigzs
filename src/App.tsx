@@ -71,7 +71,19 @@ function App() {
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null)
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
   const [freelancerName, setFreelancerName] = useState('')
+  const [sessionChecked, setSessionChecked] = useState(false);
 
+  
+  useEffect(() => {
+    // Check if user is already authenticated on mount (for session persistence)
+    const checkSession = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setIsAuthenticated(!!user);
+      setSessionChecked(true);
+    };
+    checkSession();
+  }, []);
+  
   useEffect(() => {
     loadFreelancerProfile()
   }, [])
@@ -176,6 +188,10 @@ function App() {
     }
   }
 
+  if (!sessionChecked) {
+    // Don't show login/signup until session check is complete
+    return null;
+  }
   if (!isAuthenticated) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">

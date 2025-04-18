@@ -267,30 +267,36 @@ function MyProjects({ onViewDetails }: MyProjectsProps) {
                     style={{ width: `${project.paymentProgress}%` }}
                   />
                 </div>
-              </div>
-
-              <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
-                <div className="flex items-center space-x-4">
-                  <button className="flex items-center text-gray-600 hover:text-[#00704A]">
-                    <MessageSquare size={18} className="mr-1" />
-                    <span>Message Client</span>
-                  </button>
-                  {project.status === 'ongoing' && (
-                    <button className="flex items-center text-gray-600 hover:text-[#00704A]">
-                      <Edit size={18} className="mr-1" />
-                      <span>Update Status</span>
-                    </button>
-                  )}
                 </div>
-                <button 
-                  onClick={() => onViewDetails(project.id)} 
-                  className="flex items-center text-[#00704A] hover:text-[#005538]"
-                >
-                  <span>View Details</span>
-                  <ExternalLink size={18} className="ml-1" />
-                </button>
-              </div>
-            </div>
+                <div className="mt-4 pt-4 border-t border-gray-100 flex items-center justify-between">
+  <div className="flex items-center space-x-4">
+    <button
+      className="flex items-center text-gray-600 hover:text-[#00704A]"
+      onClick={() => {
+        // Use app-level navigation to avoid full reload and logout
+        window.dispatchEvent(new CustomEvent('navigate', { detail: { section: 'messages' } }));
+      }}
+    >
+      <MessageSquare size={18} className="mr-1" />
+      <span>Message Client</span>
+    </button>
+    {project.status === 'ongoing' && (
+      <button className="flex items-center text-gray-600 hover:text-[#00704A]">
+        <Edit size={18} className="mr-1" />
+        <span>Update Status</span>
+      </button>
+    )}
+  </div>
+  <button
+    onClick={() => onViewDetails(project.id)}
+    className="flex items-center text-[#00704A] hover:text-[#005538]"
+  >
+    <span>View Details</span>
+    <ExternalLink size={18} className="ml-1" />
+  </button>
+</div>
+</div>
+           
           ))
         )}
       </div>
