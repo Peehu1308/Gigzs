@@ -1,17 +1,169 @@
-import React, { useState } from 'react'
-import { Search, Phone, Video, MoreVertical, Send, Paperclip, Image as ImageIcon, Smile, ChevronDown } from 'lucide-react'
+import React, { useEffect, useState, useRef } from 'react';
+import { Search, Phone, Video, MoreVertical, Send, Paperclip, Image as ImageIcon, Smile, ChevronDown } from 'lucide-react';
+import {supabase} from '../../lib/supabase';
+
+interface Chat {
+  id: string;
+  created_at: string;
+  participant_one: string;
+  participant_two: string;
+}
+
+interface Message {
+  id: string;
+  chat_id: string;
+  content: string;
+  created_at: string;
+  sender_id: string;
+}
 
 function MessagesPage() {
-  const [selectedChat, setSelectedChat] = useState(chats[0])
-  const [message, setMessage] = useState('')
+  // ...existing state
+  const [otherUsers, setOtherUsers] = useState<Record<string, { name?: string; email?: string }>>({});
+  const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
+  const [message, setMessage] = useState('');
+  const [chats, setChats] = useState<Chat[]>([]);
+  const [messages, setMessages] = useState<Message[]>([]);
+  const [loadingChats, setLoadingChats] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(true);
+  const [error, setError] = useState(null);
+  const [userId, setUserId] = useState<string | null>(null);
+  useEffect(() => {
+    const getUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setUserId(user?.id ?? null);
+      console.log('Fetched user:', user);
+    };
+    getUser();
+  }, []);
+  const messagesEndRef = useRef(null);
 
-  const sendMessage = (e: React.FormEvent) => {
-    e.preventDefault()
-    if (message.trim()) {
-      // Handle sending message
-      setMessage('')
+  useEffect(() => {
+    if (userId) {
+      fetchChats();
     }
-  }
+  }, [userId]);
+
+  useEffect(() => {
+    if (!selectedChat || !userId) return;
+    fetchMessages();
+    const channel = supabase
+      .channel(`messages-chat-${selectedChat.id}`)
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages', filter: `chat_id=eq.${selectedChat.id}` },
+        (payload) => {
+          setMessages((msgs) => [...msgs, payload.new as Message]);
+        }
+      )
+      .subscribe();
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [selectedChat, userId]);
+
+  const fetchChats = async () => {
+    if (!userId) {
+      console.log('No userId, skipping fetchChats');
+      return;
+    }
+    setLoadingChats(true);
+    try {
+      const { data, error } = await supabase
+        .from('chats')
+        .select('id, created_at, participant_one, participant_two')
+        .or(`participant_one.eq.${userId},participant_two.eq.${userId}`)
+        .order('created_at', { ascending: false });
+      console.log('Chats fetched:', data, 'Error:', error);
+      if (error) throw error;
+      setChats(data || []);
+      // Fetch other users' info
+      const otherIds = data.flatMap((chat) => [chat.participant_one, chat.participant_two]).filter((id) => id !== userId);
+      // Fetch names from both freelancer_profiles and client_profiles
+      let userMap: Record<string, { name?: string; email?: string }> = {};
+      if (otherIds.length > 0) {
+        // Fetch freelancer names
+        const { data: freelancers } = await supabase
+          .from('freelancer_profiles')
+          .select('user_id, full_name')
+          .in('user_id', otherIds);
+        if (freelancers) {
+          freelancers.forEach((f: any) => {
+            userMap[f.user_id] = { name: f.full_name };
+          });
+        }
+        // Fetch client names
+        const { data: clients } = await supabase
+          .from('client_profiles')
+          .select('user_id, company_name')
+          .in('user_id', otherIds);
+        if (clients) {
+          clients.forEach((c: any) => {
+            userMap[c.user_id] = { name: c.company_name };
+          });
+        }
+        // Fetch emails as fallback
+        const { data: usersData } = await supabase
+          .from('users')
+          .select('id, email')
+          .in('id', otherIds);
+        if (usersData) {
+          usersData.forEach((u: any) => {
+            if (!userMap[u.id]) userMap[u.id] = {};
+            userMap[u.id].email = u.email;
+          });
+        }
+      }
+      setOtherUsers(userMap);
+    } catch (error: any) {
+      setError(error.message);
+    } finally {
+      setLoadingChats(false);
+    }
+  };
+
+  const fetchMessages = async () => {
+    if (!selectedChat || !userId) return;
+    setLoadingMessages(true);
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('id, chat_id, content, created_at, sender_id')
+        .eq('chat_id', selectedChat.id)
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      setMessages(data || []);
+    } catch (error: any) {
+      setError(error.message);
+    } finally {
+      setLoadingMessages(false);
+    }
+  };
+
+  const sendMessage = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedChat || !userId || !message.trim()) return;
+    // Optimistically add message
+    const optimisticMsg: Message = {
+      id: `optimistic-${Date.now()}`,
+      chat_id: selectedChat.id,
+      content: message.trim(),
+      created_at: new Date().toISOString(),
+      sender_id: userId,
+    };
+    setMessages((msgs) => [...msgs, optimisticMsg]);
+    setMessage('');
+    try {
+      const { error } = await supabase
+        .from('messages')
+        .insert([{ chat_id: selectedChat.id, content: optimisticMsg.content, sender_id: userId }]);
+      if (error) throw error;
+      // Fallback: re-fetch messages to ensure consistency
+      fetchMessages();
+    } catch (error: any) {
+      setError(error.message);
+    }
+  };
 
   return (
     <div className="h-[calc(100vh-6rem)] flex rounded-lg overflow-hidden bg-white border border-gray-200">
@@ -29,33 +181,36 @@ function MessagesPage() {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {chats.map((chat) => (
-            <button
-              key={chat.id}
-              onClick={() => setSelectedChat(chat)}
-              className={`w-full p-4 flex items-start space-x-3 hover:bg-gray-50 transition-colors ${
-                selectedChat?.id === chat.id ? 'bg-gray-50' : ''
-              }`}
-            >
-              <img
-                src={chat.avatar}
-                alt={chat.name}
-                className="w-12 h-12 rounded-full"
-              />
-              <div className="flex-1 min-w-0">
-                <div className="flex justify-between items-start">
-                  <h3 className="font-medium text-gray-900 truncate">{chat.name}</h3>
-                  <span className="text-xs text-gray-500">{chat.lastMessageTime}</span>
-                </div>
-                <p className="text-sm text-gray-500 truncate">{chat.lastMessage}</p>
-                {chat.unread > 0 && (
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#00704A] text-white">
-                    {chat.unread}
-                  </span>
-                )}
-              </div>
-            </button>
-          ))}
+          {loadingChats ? (
+            <div className="p-4 text-gray-500">Loading chats...</div>
+          ) : chats.length === 0 ? (
+            <div className="p-4 text-gray-500">No chats yet.</div>
+          ) : (
+            <ul>
+              {chats.map((chat) => {
+                const otherId = chat.participant_one === userId ? chat.participant_two : chat.participant_one;
+                const otherInfo = otherUsers[otherId];
+                const displayName = otherInfo?.name || otherInfo?.email || `Chat ${chat.id.slice(-6)}`;
+                return (
+                  <li
+                    key={chat.id}
+                    className={`flex items-center gap-2 p-2 cursor-pointer hover:bg-gray-100 ${selectedChat?.id === chat.id ? 'bg-gray-100' : ''}`}
+                    onClick={() => setSelectedChat(chat)}
+                  >
+                    <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-lg font-bold">
+                      {displayName[0]?.toUpperCase() || 'U'}
+                    </div>
+                    <div>
+                      <div className="font-semibold">
+                        {displayName}
+                      </div>
+                      <div className="text-xs text-gray-400">{new Date(chat.created_at).toLocaleDateString()}</div>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
         </div>
       </div>
 
@@ -64,51 +219,61 @@ function MessagesPage() {
         <div className="flex-1 flex flex-col">
           {/* Chat Header */}
           <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-            <div className="flex items-center space-x-3">
-              <img
-                src={selectedChat.avatar}
-                alt={selectedChat.name}
-                className="w-10 h-10 rounded-full"
-              />
-              <div>
-                <h2 className="font-medium text-gray-900">{selectedChat.name}</h2>
-                <p className="text-sm text-green-600">Online</p>
+            {selectedChat && (
+              <div className="flex items-center gap-2">
+                <div className="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-lg font-bold">
+                  {(() => {
+                    const otherId = selectedChat.participant_one === userId ? selectedChat.participant_two : selectedChat.participant_one;
+                    const otherInfo = otherUsers[otherId];
+                    const displayName = otherInfo?.name || otherInfo?.email || `Chat ${selectedChat.id.slice(-6)}`;
+                    return displayName[0]?.toUpperCase() || 'U';
+                  })()}
+                </div>
+                <div className="flex-1">
+                  <div className="font-semibold">
+                    {(() => {
+                      const otherId = selectedChat.participant_one === userId ? selectedChat.participant_two : selectedChat.participant_one;
+                      const otherInfo = otherUsers[otherId];
+                      return otherInfo?.name || otherInfo?.email || `Chat ${selectedChat.id.slice(-6)}`;
+                    })()}
+                  </div>
+                  <div className="text-xs text-green-600">Online</div>
+                </div>
+                <Phone className="w-5 h-5 mx-2 cursor-pointer text-gray-400" />
+                <Video className="w-5 h-5 mx-2 cursor-pointer text-gray-400" />
+                <MoreVertical className="w-5 h-5 mx-2 cursor-pointer text-gray-400" />
               </div>
-            </div>
-            <div className="flex items-center space-x-2">
-              <button className="p-2 hover:bg-gray-100 rounded-full">
-                <Phone size={20} className="text-gray-600" />
-              </button>
-              <button className="p-2 hover:bg-gray-100 rounded-full">
-                <Video size={20} className="text-gray-600" />
-              </button>
-              <button className="p-2 hover:bg-gray-100 rounded-full">
-                <MoreVertical size={20} className="text-gray-600" />
-              </button>
-            </div>
+            )}
           </div>
 
           {/* Messages */}
           <div className="flex-1 overflow-y-auto p-4 space-y-4">
-            {selectedChat.messages.map((msg, index) => (
-              <div
-                key={index}
-                className={`flex ${msg.sent ? 'justify-end' : 'justify-start'}`}
-              >
+            {loadingMessages ? (
+              <div className="text-gray-500">Loading messages...</div>
+            ) : messages.length === 0 ? (
+              <div className="text-gray-500">No messages yet</div>
+            ) : (
+              messages.map((msg, index) => (
                 <div
-                  className={`max-w-[70%] rounded-lg px-4 py-2 ${
-                    msg.sent
-                      ? 'bg-[#00704A] text-white'
-                      : 'bg-gray-100 text-gray-900'
-                  }`}
+                  key={msg.id || index}
+                  className={`flex ${msg.sender_id === userId ? 'justify-end' : 'justify-start'}`}
                 >
-                  <p>{msg.text}</p>
-                  <p className={`text-xs mt-1 ${msg.sent ? 'text-[#00704A]/75' : 'text-gray-500'}`}>
-                    {msg.time}
-                  </p>
+                  <div
+                    className={`max-w-[70%] rounded-lg px-4 py-2 ${
+                      msg.sender_id === userId
+                        ? 'bg-[#00704A] text-white'
+                        : 'bg-gray-100 text-gray-900'
+                    }`}
+                  >
+                    <p>{msg.content}</p>
+                    <p className={`text-xs mt-1 ${msg.sender_id === userId ? 'text-[#00704A]/75' : 'text-gray-500'}`}>
+                      {new Date(msg.created_at).toLocaleTimeString()}
+                    </p>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
+            <div ref={messagesEndRef} />
           </div>
 
           {/* Message Input */}
