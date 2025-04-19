@@ -59,10 +59,11 @@ function Portfolio() {
       if (!freelancerProfile) {
         throw new Error('Freelancer profile not found')
       }
-
+      console.log('Current user:', user);
+console.log('Freelancer profile:', freelancerProfile);
       // Get portfolio projects
       const { data: portfolioData, error: portfolioError } = await supabase
-        .from('portfolio')
+        .from('Portfolio')
         .select(`
           id,
           freelancer_id,
@@ -82,6 +83,7 @@ function Portfolio() {
       }
 
       setProjects(portfolioData || [])
+      console.log('Portfolio data:', portfolioData);
     } catch (err) {
       console.error('Portfolio error:', err)
       setError(err instanceof Error ? err.message : 'An error occurred loading portfolio')
@@ -124,7 +126,7 @@ function Portfolio() {
 
       // Insert the new project
       const { error: insertError } = await supabase
-        .from('portfolio')
+        .from('Portfolio')
         .insert([newProjectData])
 
       if (insertError) {
@@ -134,7 +136,7 @@ function Portfolio() {
 
       // Fetch the updated list of projects
       const { data: portfolioData, error: fetchError } = await supabase
-        .from('portfolio')
+        .from('Portfolio')
         .select('*')
         .eq('freelancer_id', freelancerProfile.id)
         .order('date', { ascending: false })
@@ -186,7 +188,7 @@ function Portfolio() {
   const handleDelete = async (projectId: string) => {
     try {
       const { error } = await supabase
-        .from('portfolio')
+        .from('Portfolio')
         .delete()
         .eq('id', projectId)
 
